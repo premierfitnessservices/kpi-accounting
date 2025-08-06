@@ -58,6 +58,49 @@ app.post('/send-emails', async (req, res) => {
       return result;
     });
 
+    // ✅ Get cookies to reuse for admin subdomain
+    const cookies = await page.cookies();
+
+    // ✅ Open new page to access admin.servicefusion.com
+    const adminPage = await browser.newPage();
+    await adminPage.setCookie(...cookies);
+    await adminPage.goto('https://admin.servicefusion.com/jobs', { waitUntil: 'domcontentloaded' });
+
+    // ✅ Wait for the #oj table and Ready to Invoice category to be visible
+    await adminPage.waitForSelector('#oj', { timeout: 10000 });
+    await adminPage.waitForFunction(() => {
+      return Array.from(document.querySelectorAll('#oj a')).some(el =>
+        el.textContent.includes('Ready to Invoice')
+      );
+    }, { timeout: 10000 });
+
+    // ✅ Extract the "Ready to Invoice" count
+    const readyToInvoiceCount = await adminPage.evaluate(() => {
+      try {
+        const rows = Array.from(document.querySelectorAll('#oj tr'));
+        for (const row of rows) {
+          const link = row.querySelector('a');
+          const badge = row.querySelector('.badge');
+          if (
+            link &&
+            badge &&
+            link.textContent.includes('Ready to Invoice') &&
+            link.id.includes('oj-OdoRyGXOIgZ7PKc_sLQGOq_OhBpoRM9o2DOWMG0r5mk')
+          ) {
+            return parseInt(badge.textContent.trim());
+          }
+        }
+        return 0;
+      } catch (e) {
+        return 0;
+      }
+    });
+
+    await adminPage.close();
+
+    // ➕ Append to result
+    data["Number of Pending Jobs in Ready to Invoice Status"] = readyToInvoiceCount;
+
     await browser.close();
     return res.json({ success: true, data });
 
